@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import LogoutButton from './LogoutButton'
+import { supabase } from '@/lib/supabase/client'
 
 type Props = {
   email?: string | null
@@ -10,6 +11,32 @@ type Props = {
 
 export default function UserMenu({ email }: Props) {
   const [open, setOpen] = useState(false)
+  //const supabase = supabase()
+
+  const [role, setRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    const loadRole = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!user) return
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      console.log(data)
+      setRole(data?.role ?? null)
+    }
+
+    loadRole()
+
+  }, [])
+
+
 
   // ยังไม่ login → ปุ่ม Login ธรรมดา
   if (!email) {
@@ -37,6 +64,7 @@ export default function UserMenu({ email }: Props) {
       <button
         onClick={() => setOpen(!open)}
         className="
+        cursor-pointer
           flex items-center gap-2
           px-3 py-1.5
           rounded-full
@@ -87,6 +115,32 @@ export default function UserMenu({ email }: Props) {
           >
             ดูสถิติ
           </Link>
+
+          {role === 'admin' && (
+
+            <Link
+              href="/admin/questions"
+              className="block px-4 py-2 text-sm hover:bg-slate-50 text-blue-600 font-medium"
+            >
+              จัดการข้อสอบ
+            </Link>
+
+
+          )}
+          {role === 'admin' && (
+
+            <Link
+              href="/admin/exam-sets/"
+              className="block px-4 py-2 text-sm hover:bg-slate-50 text-blue-600 font-medium"
+            >
+              จัดการชุดข้อสอบ
+            </Link>
+
+
+          )}
+
+
+
 
           <div className="border-t" />
 
