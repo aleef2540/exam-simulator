@@ -84,6 +84,7 @@ export default function UserMenu({ email }: Props) {
             <div className="border-t" />
 
             {/* 🟢 ใส่ onClick={closeMenu} ให้ทุกลิงก์เพื่อให้เมนูปิดเมื่อเปลี่ยนหน้า */}
+            {/*
             <Link
               href="/dashboard"
               onClick={closeMenu}
@@ -99,7 +100,8 @@ export default function UserMenu({ email }: Props) {
             >
               ดูสถิติ
             </Link>
-
+*/}
+            
             {role === 'admin' && (
               <>
                 <Link

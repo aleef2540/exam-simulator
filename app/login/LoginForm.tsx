@@ -65,6 +65,10 @@ export default function LoginPage() {
         >
           {loading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
         </button>
+        ทดลองระบบด้วย
+        email : test@test.com
+        password : test
+
       </div>
     </div>
   )
