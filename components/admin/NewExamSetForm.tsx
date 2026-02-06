@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import Button from '@/components/ui/Button'
 import { 
-  Library, Save, LayoutList, Hash, GripVertical, Trash2, Info, Clock 
+  Library, Save, LayoutList, Hash, GripVertical, Trash2, Info, Clock, Plus 
 } from 'lucide-react'
+import { useRouter } from 'next/navigation' 
 
-// --- Import DND Kit (คงเดิม) ---
+// --- DND Kit Imports ---
 import {
   DndContext, 
   closestCenter,
@@ -29,7 +30,6 @@ import { CSS } from '@dnd-kit/utilities'
 type Topic = { id: string; name: string }
 type SelectedTopic = { topicId: string; count: number }
 
-// --- Component SortableItem (คงเดิม) ---
 function SortableItem({ topic, selectedIdx, count, onUpdateCount, onRemove }: any) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: topic.id })
   const style = {
@@ -47,7 +47,7 @@ function SortableItem({ topic, selectedIdx, count, onUpdateCount, onRemove }: an
         <GripVertical size={20} className="text-white/70" />
       </div>
       <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center font-black text-sm">{selectedIdx + 1}</div>
-      <span className="flex-1 text-sm font-bold truncate">{topic.name}</span>
+      <span className="flex-1 text-sm font-bold truncate">{topic?.name || 'กำลังโหลด...'}</span>
       <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20">
         <input
           type="number"
@@ -64,13 +64,27 @@ function SortableItem({ topic, selectedIdx, count, onUpdateCount, onRemove }: an
   )
 }
 
-export default function NewExamSetForm() {
+interface Props {
+  initialData?: any 
+}
+
+export default function NewExamSetForm({ initialData }: Props) {
+  const router = useRouter()
   const [loading, setLoading] = useState(false)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [duration, setDuration] = useState<number>(60) // เพิ่ม State สำหรับเวลา (นาที)
+  
+  const [name, setName] = useState(initialData?.name || '')
+  const [description, setDescription] = useState(initialData?.description || '')
+  const [duration, setDuration] = useState<number>(initialData?.duration || 60)
+  const [status, setStatus] = useState(initialData?.status || 'draft')
+  const [isFeatured, setIsFeatured] = useState(initialData?.is_featured || false)
+
   const [topics, setTopics] = useState<Topic[]>([])
-  const [selectedTopics, setSelectedTopics] = useState<SelectedTopic[]>([])
+  const [selectedTopics, setSelectedTopics] = useState<SelectedTopic[]>(
+    initialData?.exam_set_topics?.map((t: any) => ({
+      topicId: t.topic_id,
+      count: t.question_count
+    })) || []
+  )
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -98,7 +112,7 @@ export default function NewExamSetForm() {
     if (selectedTopics.find(t => t.topicId === topicId)) {
       setSelectedTopics(prev => prev.filter(t => t.topicId !== topicId))
     } else {
-      setSelectedTopics(prev => [...prev, { topicId, count: 1 }])
+      setSelectedTopics(prev => [...prev, { topicId, count: 10 }])
     }
   }
 
@@ -110,26 +124,39 @@ export default function NewExamSetForm() {
   const submit = async () => {
     if (!name.trim() || selectedTopics.length === 0 || duration <= 0) return alert('กรุณากรอกข้อมูลให้ครบถ้วน')
     setLoading(true)
+    
     try {
-      // เพิ่ม duration ลงในการ insert
-      const { data: examSet, error } = await supabase
-        .from('exam_sets')
-        .insert({ name, description, duration }) 
-        .select()
-        .single()
+      let examSetId = initialData?.id
+      const examData = { name, description, duration, status, is_featured: isFeatured }
 
-      if (error) throw error
+      if (examSetId) {
+        const { error: updateError } = await supabase.from('exam_sets').update(examData).eq('id', examSetId)
+        if (updateError) throw updateError
+        await supabase.from('exam_set_topics').delete().eq('exam_set_id', examSetId)
+      } else {
+        const { data: newExam, error: insertError } = await supabase.from('exam_sets').insert(examData).select().single()
+        if (insertError) throw insertError
+        examSetId = newExam.id
+      }
 
       const payload = selectedTopics.map((t, index) => ({
-        exam_set_id: examSet.id,
+        exam_set_id: examSetId,
         topic_id: t.topicId,
         question_count: t.count,
         sort_order: index + 1
       }))
 
-      await supabase.from('exam_set_topics').insert(payload)
-      alert('บันทึกสำเร็จ 🎉'); setName(''); setDescription(''); setDuration(60); setSelectedTopics([])
-    } catch (err) { alert('ผิดพลาด') } finally { setLoading(false) }
+      const { error: relError } = await supabase.from('exam_set_topics').insert(payload)
+      if (relError) throw relError
+
+      alert(initialData?.id ? 'แก้ไขข้อมูลสำเร็จ ✨' : 'บันทึกสำเร็จ 🎉')
+      router.push('/admin/exam-sets')
+      router.refresh()
+    } catch (err: any) { 
+      alert('ผิดพลาด: ' + err.message) 
+    } finally { 
+      setLoading(false) 
+    }
   }
 
   return (
@@ -139,68 +166,59 @@ export default function NewExamSetForm() {
           <Library size={28} />
         </div>
         <div>
-          <h1 className="text-2xl font-black">จัดชุดข้อสอบ (Drag & Drop)</h1>
-          <p className="text-sm text-slate-500 font-medium">กำหนดเวลาและหัวข้อที่ใช้ในการสอบ</p>
+          <h1 className="text-2xl font-black">{initialData?.id ? 'แก้ไขชุดข้อสอบ' : 'จัดชุดข้อสอบใหม่'}</h1>
+          <p className="text-sm text-slate-500 font-medium">กำหนดเวลาและสัดส่วนของแต่ละหัวข้อ</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Left Column: Basic Info */}
         <div className="md:col-span-1 space-y-4">
           <div className="bg-white p-6 rounded-[28px] border border-slate-200 shadow-sm space-y-4">
             <div className="space-y-1">
               <label className="text-[10px] font-black uppercase text-slate-400 ml-2">ชื่อชุดข้อสอบ</label>
-              <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500 transition-colors" placeholder="เช่น ก.พ. ชุดที่ 1..." value={name} onChange={e => setName(e.target.value)} />
+              <input className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500 transition-colors" value={name} onChange={e => setName(e.target.value)} />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-2">สถานะการใช้งาน</label>
+              <select className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm font-bold outline-none focus:border-indigo-500 transition-colors cursor-pointer" value={status} onChange={e => setStatus(e.target.value)}>
+                <option value="draft">📁 ร่าง (Draft)</option>
+                <option value="published">🚀 เปิดใช้งาน (Published)</option>
+                <option value="archived">📦 ปิดใช้งาน (Archived)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3 px-2 py-1">
+              <input type="checkbox" id="isFeatured" className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" checked={isFeatured} onChange={e => setIsFeatured(e.target.checked)} />
+              <label htmlFor="isFeatured" className="text-xs font-black uppercase text-slate-500 cursor-pointer select-none">แนะนำเป็นพิเศษ</label>
             </div>
 
             <div className="space-y-1">
               <label className="text-[10px] font-black uppercase text-slate-400 ml-2">เวลาที่ใช้สอบ (นาที)</label>
               <div className="relative">
-                <input 
-                  type="number"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-4 py-3 text-sm font-black outline-none focus:border-indigo-500 transition-colors" 
-                  placeholder="60" 
-                  value={duration} 
-                  onChange={e => setDuration(parseInt(e.target.value) || 0)} 
-                />
+                <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-10 pr-4 py-3 text-sm font-black outline-none focus:border-indigo-500 transition-colors" value={duration} onChange={e => setDuration(parseInt(e.target.value) || 0)} />
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               </div>
             </div>
 
             <div className="space-y-1">
               <label className="text-[10px] font-black uppercase text-slate-400 ml-2">รายละเอียด</label>
-              <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none min-h-[100px] resize-none focus:border-indigo-500 transition-colors" placeholder="รายละเอียดของชุดข้อสอบ..." value={description} onChange={e => setDescription(e.target.value)} />
+              <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3 text-sm outline-none min-h-[100px] resize-none focus:border-indigo-500 transition-colors" value={description} onChange={e => setDescription(e.target.value)} />
             </div>
-          </div>
-
-          <div className="bg-amber-50 p-5 rounded-[28px] border border-amber-100 flex gap-3 text-amber-800 shadow-sm">
-            <Info size={20} className="shrink-0" />
-            <p className="text-[11px] font-bold leading-relaxed italic text-amber-900/70">
-              ระบุเวลาที่ต้องการให้ผู้สอบใช้ในการทำข้อสอบชุดนี้ (หน่วยเป็นนาที) ระบบจะทำการจับเวลาถอยหลังจริง
-            </p>
           </div>
         </div>
 
-        {/* Right Column: Topics (ลากได้เหมือนเดิม) */}
         <div className="md:col-span-2 space-y-6">
           <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm">
-            <h3 className="text-sm font-black mb-4 flex items-center gap-2 text-slate-400 uppercase tracking-widest"><LayoutList size={18}/> หัวข้อที่เลือกแล้ว</h3>
-            
+            <h3 className="text-sm font-black mb-4 flex items-center gap-2 text-slate-400 uppercase tracking-widest"><LayoutList size={18}/> หัวข้อที่เลือก</h3>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={selectedTopics.map(t => t.topicId)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-1 mb-6">
                   {selectedTopics.map((st, idx) => {
                     const topic = topics.find(t => t.id === st.topicId)
-                    return topic ? (
-                      <SortableItem 
-                        key={topic.id} 
-                        topic={topic} 
-                        selectedIdx={idx} 
-                        count={st.count} 
-                        onUpdateCount={updateCount} 
-                        onRemove={toggleTopic} 
-                      />
-                    ) : null
+                    return (
+                      <SortableItem key={st.topicId} topic={topic || { id: st.topicId, name: 'กำลังโหลด...' }} selectedIdx={idx} count={st.count} onUpdateCount={updateCount} onRemove={toggleTopic} />
+                    )
                   })}
                   {selectedTopics.length === 0 && (
                     <div className="text-center py-12 border-2 border-dashed border-slate-100 rounded-[28px] text-slate-400 text-sm font-bold italic">ยังไม่มีหัวข้อที่เลือก</div>
@@ -209,36 +227,39 @@ export default function NewExamSetForm() {
               </SortableContext>
             </DndContext>
 
-            <h3 className="text-sm font-black mb-4 pt-4 border-t border-slate-50 flex items-center gap-2 text-slate-400 uppercase tracking-widest">เลือกหัวข้อเพิ่ม</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[250px] overflow-y-auto p-1 custom-scrollbar">
+            <h3 className="text-sm font-black mb-4 pt-4 border-t border-slate-50 flex items-center gap-2 text-slate-400 uppercase tracking-widest">เพิ่มหัวข้ออื่น</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[200px] overflow-y-auto p-1">
               {topics.filter(t => !selectedTopics.find(st => st.topicId === t.id)).map(topic => (
-                <div 
-                  key={topic.id} 
-                  onClick={() => toggleTopic(topic.id)}
-                  className="p-3 bg-slate-50 hover:bg-indigo-50 border border-slate-100 rounded-xl cursor-pointer text-xs font-black text-slate-600 transition-all flex items-center justify-between group active:scale-95"
-                >
+                <div key={topic.id} onClick={() => toggleTopic(topic.id)} className="p-3 bg-slate-50 hover:bg-indigo-50 border border-slate-100 rounded-xl cursor-pointer text-xs font-black text-slate-600 transition-all flex items-center justify-between group">
                   <span className="truncate">{topic.name}</span>
-                  <div className="w-5 h-5 rounded-full border-2 border-slate-200 group-hover:border-indigo-400 group-hover:bg-white transition-colors shrink-0" />
+                  <Plus size={14} className="text-slate-300 group-hover:text-indigo-500" />
                 </div>
               ))}
             </div>
           </div>
 
-          {/* สรุปผลด้านล่าง */}
           <div className="bg-slate-900 rounded-[32px] p-6 flex items-center justify-between shadow-2xl">
             <div className="flex gap-8">
               <div className="flex items-center gap-3 text-white">
-                <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg font-black"><Hash size={20}/></div>
-                <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">รวมข้อสอบ</p><p className="text-xl font-black leading-tight">{totalQuestions} ข้อ</p></div>
+                <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center shadow-lg"><Hash size={20}/></div>
+                <div><p className="text-[9px] font-black text-slate-400 uppercase">รวมข้อสอบ</p><p className="text-xl font-black">{totalQuestions} ข้อ</p></div>
               </div>
               <div className="flex items-center gap-3 text-white">
-                <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg font-black"><Clock size={20}/></div>
-                <div><p className="text-[9px] font-black text-slate-400 uppercase tracking-tighter">เวลาทั้งหมด</p><p className="text-xl font-black leading-tight">{duration} นาที</p></div>
+                <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg"><Clock size={20}/></div>
+                <div><p className="text-[9px] font-black text-slate-400 uppercase">เวลาทั้งหมด</p><p className="text-xl font-black">{duration} น.</p></div>
               </div>
             </div>
-            <Button onClick={submit} disabled={loading} className="px-8 py-4 rounded-2xl bg-indigo-500 hover:bg-indigo-400 font-black text-white transition-all active:scale-95 shadow-xl shadow-indigo-500/20">
-              {loading ? 'บันทึก...' : <><Save size={18} className="mr-2 inline" /> บันทึกชุดข้อสอบ</>}
-            </Button>
+            
+            <div className="flex gap-3">
+              {initialData?.id && (
+                <Button type="button" onClick={() => router.back()} className="px-6 py-4 rounded-2xl bg-white/10 text-white font-black hover:bg-white/20 border-0 shadow-none min-w-[100px]">
+                  ยกเลิก
+                </Button>
+              )}
+              <Button onClick={submit} disabled={loading} className="px-8 py-4 rounded-2xl bg-indigo-500 hover:bg-indigo-400 font-black text-white shadow-xl shadow-indigo-500/20 min-w-[160px]">
+                {loading ? 'บันทึก...' : <><Save size={18} className="mr-2 inline" /> {initialData?.id ? 'บันทึกการแก้ไข' : 'สร้างชุดข้อสอบ'}</>}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

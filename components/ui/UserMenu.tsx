@@ -11,9 +11,10 @@ type Props = {
 
 export default function UserMenu({ email }: Props) {
   const [open, setOpen] = useState(false)
-  //const supabase = supabase()
-
   const [role, setRole] = useState<string | null>(null)
+
+  // ฟังก์ชันสำหรับปิดเมนู
+  const closeMenu = () => setOpen(false)
 
   useEffect(() => {
     const loadRole = async () => {
@@ -28,126 +29,104 @@ export default function UserMenu({ email }: Props) {
         .select('role')
         .eq('id', user.id)
         .single()
-      console.log(data)
+      
       setRole(data?.role ?? null)
     }
 
     loadRole()
-
   }, [])
 
-
-
-  // ยังไม่ login → ปุ่ม Login ธรรมดา
   if (!email) {
     return (
       <Link
         href="/login"
-        className="
-          px-4 py-2
-          rounded-lg
-          bg-blue-600
-          text-white
-          text-sm
-          hover:bg-blue-700
-          transition
-        "
+        className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 transition"
       >
         เข้าสู่ระบบ
       </Link>
     )
   }
 
-  // login แล้ว → dropdown
   return (
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="
-        cursor-pointer
-          flex items-center gap-2
-          px-3 py-1.5
-          rounded-full
-          hover:bg-slate-100
-          transition
-        "
+        className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-full hover:bg-slate-100 transition"
       >
-        <div className="
-          w-8 h-8
-          rounded-full
-          bg-blue-600
-          text-white
-          flex items-center justify-center
-          text-sm font-medium
-        ">
+        <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-medium">
           {email[0].toUpperCase()}
         </div>
       </button>
 
       {open && (
-        <div
-          className="
-            absolute right-0 mt-2 w-52
-            bg-white
-            border border-slate-200
-            rounded-xl
-            shadow-lg
-            overflow-hidden
-            z-50
-          "
-        >
-          <div className="px-4 py-3 text-sm text-slate-500">
-            {email}
-          </div>
-
-          <div className="border-t" />
-
-          <Link
-            href="/dashboard"
-            className="block px-4 py-2 text-sm hover:bg-slate-50"
+        <>
+          {/* 🟢 Backdrop: คลิกพื้นที่ว่างข้างนอกเพื่อปิดเมนู */}
+          <div 
+            className="fixed inset-0 z-40" 
+            onClick={closeMenu} 
+          />
+          
+          <div
+            className="
+              absolute right-0 mt-2 w-52
+              bg-white
+              border border-slate-200
+              rounded-xl
+              shadow-lg
+              overflow-hidden
+              z-50
+            "
           >
-            แดชบอร์ด
-          </Link>
+            <div className="px-4 py-3 text-sm text-slate-500 truncate">
+              {email}
+            </div>
 
-          <Link
-            href="/stats"
-            className="block px-4 py-2 text-sm hover:bg-slate-50"
-          >
-            ดูสถิติ
-          </Link>
+            <div className="border-t" />
 
-          {role === 'admin' && (
-
+            {/* 🟢 ใส่ onClick={closeMenu} ให้ทุกลิงก์เพื่อให้เมนูปิดเมื่อเปลี่ยนหน้า */}
             <Link
-              href="/admin/questions"
-              className="block px-4 py-2 text-sm hover:bg-slate-50 text-blue-600 font-medium"
+              href="/dashboard"
+              onClick={closeMenu}
+              className="block px-4 py-2 text-sm hover:bg-slate-50"
             >
-              จัดการข้อสอบ
+              แดชบอร์ด
             </Link>
 
-
-          )}
-          {role === 'admin' && (
-
             <Link
-              href="/admin/exam-sets/"
-              className="block px-4 py-2 text-sm hover:bg-slate-50 text-blue-600 font-medium"
+              href="/stats"
+              onClick={closeMenu}
+              className="block px-4 py-2 text-sm hover:bg-slate-50"
             >
-              จัดการชุดข้อสอบ
+              ดูสถิติ
             </Link>
 
+            {role === 'admin' && (
+              <>
+                <Link
+                  href="/admin/questions"
+                  onClick={closeMenu}
+                  className="block px-4 py-2 text-sm hover:bg-slate-50 text-blue-600 font-medium"
+                >
+                  จัดการข้อสอบ
+                </Link>
+                <Link
+                  href="/admin/exam-sets/"
+                  onClick={closeMenu}
+                  className="block px-4 py-2 text-sm hover:bg-slate-50 text-blue-600 font-medium"
+                >
+                  จัดการชุดข้อสอบ
+                </Link>
+              </>
+            )}
 
-          )}
+            <div className="border-t" />
 
-
-
-
-          <div className="border-t" />
-
-          <div className="px-4 py-2">
-            <LogoutButton />
+            {/* 🟢 เมื่อ Logout ให้ปิดเมนูด้วย */}
+            <div className="px-4 py-2" onClick={closeMenu}>
+              <LogoutButton />
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   )

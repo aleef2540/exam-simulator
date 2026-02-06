@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import Button from '@/components/ui/Button'
+import { useRouter } from 'next/navigation' // เพิ่มไว้ redirect
 import { 
   BookOpen, 
   Hash, 
@@ -12,26 +13,38 @@ import {
   PlusCircle,
   FileText,
   Type,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react'
 
 type Subject = { id: string; name: string }
 type Topic = { id: string; name: string }
 type Choice = {
+  id?: string // เพิ่ม id ไว้ update
   type: 'text' | 'image'
   text: string
   file: File | null
 }
 
-export default function NewQuestionForm() {
+interface Props {
+  initialData?: any 
+}
+
+export default function NewQuestionForm({ initialData }: Props) {
+  const router = useRouter()
+  const isEdit = !!initialData?.id
+
+  const [questionText, setQuestionText] = useState(initialData?.question_text || '')
+  const [subjectId, setSubjectId] = useState(initialData?.subject_id || '')
+  const [topicId, setTopicId] = useState(initialData?.topic_id || '')
+
   const [loading, setLoading] = useState(false)
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [topics, setTopics] = useState<Topic[]>([])
-  const [subjectId, setSubjectId] = useState('')
-  const [topicId, setTopicId] = useState('')
-  const [questionType, setQuestionType] = useState<'text' | 'image'>('text')
-  const [questionText, setQuestionText] = useState('')
+  const [questionType, setQuestionType] = useState<'text' | 'image'>(initialData?.question_type || 'text')
+  
   const [questionImage, setQuestionImage] = useState<File | null>(null)
+  const [correctIndex, setCorrectIndex] = useState<number | null>(null)
   
   const [choices, setChoices] = useState<Choice[]>([
     { type: 'text', text: '', file: null },
@@ -39,16 +52,48 @@ export default function NewQuestionForm() {
     { type: 'text', text: '', file: null },
     { type: 'text', text: '', file: null },
   ])
-  const [correctIndex, setCorrectIndex] = useState<number | null>(null)
+
+  // 🟡 Sync ข้อมูลเมื่อ initialData เปลี่ยนแปลง (ใช้โครงสร้างเดิมของคุณ)
+  useEffect(() => {
+    if (initialData) {
+      setQuestionText(initialData.question_text || '')
+      setSubjectId(initialData.subject_id || '')
+      setTopicId(initialData.topic_id || '')
+      setQuestionType(initialData.question_type || 'text')
+
+      if (initialData.choices && initialData.choices.length > 0) {
+        const sortedChoices = [...initialData.choices].sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+        const mapped = sortedChoices.map((c: any, index: number) => {
+          if (c.is_correct) setCorrectIndex(index)
+          return {
+            id: c.id,
+            type: c.choice_type || 'text',
+            text: c.choice_text || '',
+            file: null
+          }
+        })
+        setChoices(mapped)
+      }
+    }
+  }, [initialData])
 
   useEffect(() => {
     supabase.from('subjects').select('id,name').then(({ data }) => setSubjects(data || []))
   }, [])
 
   useEffect(() => {
-    if (!subjectId) { setTopics([]); setTopicId(''); return }
-    supabase.from('topics').select('id,name').eq('subject_id', subjectId).then(({ data }) => setTopics(data || []))
-  }, [subjectId])
+    const fetchTopics = async () => {
+      if (!subjectId) { setTopics([]); setTopicId(''); return }
+      const { data } = await supabase.from('topics').select('id,name').eq('subject_id', subjectId)
+      setTopics(data || [])
+      
+      // ถ้าเป็นโหมด Edit ให้ล็อคค่า topicId เดิมไว้ไม่ให้หาย
+      if (isEdit && initialData?.topic_id && subjectId === initialData.subject_id) {
+        setTopicId(initialData.topic_id)
+      }
+    }
+    fetchTopics()
+  }, [subjectId, initialData])
 
   const switchChoiceType = (i: number, type: 'text' | 'image') => {
     setChoices((prev) => prev.map((c, idx) => idx === i ? { ...c, type, text: '', file: null } : c))
@@ -66,42 +111,58 @@ export default function NewQuestionForm() {
 
   const submit = async () => {
     if (!subjectId || !topicId) return alert('กรุณาเลือกวิชาและหมวด')
-    if (!questionText && !questionImage) return alert('กรุณากรอกโจทย์')
+    if (!questionText && !questionImage && questionType === 'text') return alert('กรุณากรอกโจทย์')
     if (correctIndex === null) return alert('กรุณาเลือกคำตอบที่ถูก')
 
     setLoading(true)
     try {
-      let imageUrl = null
+      let imageUrl = initialData?.question_image_url || null
       if (questionType === 'image' && questionImage) imageUrl = await uploadQuestionImage(questionImage)
 
-      const { data: question, error } = await supabase.from('questions').insert({
+      const questionPayload = {
         subject_id: subjectId,
         topic_id: topicId,
         question_text: questionType === 'text' ? questionText : null,
         question_type: questionType,
         question_image_url: imageUrl,
-      }).select().single()
+      }
 
-      if (error) throw error
+      let currentQuestionId = initialData?.id
 
-      const payload = choices.map((c, i) => ({
-        question_id: question.id,
-        choice_text: c.type === 'text' ? c.text : null,
-        choice_type: c.type,
-        is_correct: i === correctIndex,
-      }))
+      if (isEdit) {
+        const { error } = await supabase.from('questions').update(questionPayload).eq('id', currentQuestionId)
+        if (error) throw error
+      } else {
+        const { data, error } = await supabase.from('questions').insert(questionPayload).select().single()
+        if (error) throw error
+        currentQuestionId = data.id
+      }
 
-      const { error: choiceError } = await supabase.from('choices').insert(payload)
-      if (choiceError) throw choiceError
+      // จัดการ Choices
+      for (let i = 0; i < choices.length; i++) {
+        const c = choices[i]
+        const choicePayload = {
+          question_id: currentQuestionId,
+          choice_text: c.type === 'text' ? c.text : null,
+          choice_type: c.type,
+          is_correct: i === correctIndex,
+        }
 
-      alert('เพิ่มข้อสอบสำเร็จ 🎉')
-      setQuestionText(''); setQuestionImage(null); setCorrectIndex(null)
-      setChoices([
-        { type: 'text', text: '', file: null },
-        { type: 'text', text: '', file: null },
-        { type: 'text', text: '', file: null },
-        { type: 'text', text: '', file: null },
-      ])
+        if (isEdit && c.id) {
+          await supabase.from('choices').update(choicePayload).eq('id', c.id)
+        } else {
+          await supabase.from('choices').insert(choicePayload)
+        }
+      }
+
+      alert(isEdit ? 'แก้ไขสำเร็จ 🎉' : 'เพิ่มข้อสอบสำเร็จ 🎉')
+      if (!isEdit) {
+         setQuestionText(''); setQuestionImage(null); setCorrectIndex(null)
+         setChoices([{ type: 'text', text: '', file: null }, { type: 'text', text: '', file: null }, { type: 'text', text: '', file: null }, { type: 'text', text: '', file: null }])
+      } else {
+        router.push('/admin/questions')
+        router.refresh()
+      }
     } catch (err: any) {
       alert(err.message || 'เกิดข้อผิดพลาด')
     } finally { setLoading(false) }
@@ -116,7 +177,7 @@ export default function NewQuestionForm() {
           <PlusCircle size={28} />
         </div>
         <div>
-          <h1 className="text-2xl font-black text-slate-800 tracking-tight">เพิ่มข้อสอบใหม่</h1>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">{isEdit ? 'แก้ไขข้อสอบ' : 'เพิ่มข้อสอบใหม่'}</h1>
           <p className="text-sm text-slate-500 font-medium">กรอกโจทย์และตัวเลือกให้ครบถ้วนก่อนบันทึก</p>
         </div>
       </div>
@@ -157,19 +218,11 @@ export default function NewQuestionForm() {
               </div>
             </div>
           </section>
-
-          <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl flex gap-3">
-             <AlertCircle className="text-blue-500 shrink-0" size={20} />
-             <p className="text-[11px] text-blue-700 leading-relaxed font-medium">
-               หน้าจอจะไม่ขยับเขยื้อนเมื่อคุณสลับโหมดโจทย์ เพราะเราล็อกความสูงไว้ให้แล้ว
-             </p>
-          </div>
         </div>
 
         {/* --- Main Content --- */}
         <div className="md:col-span-2 space-y-8">
           
-          {/* Section: Question (Fixed Height) */}
           <section className="bg-white p-8 rounded-[24px] border border-slate-200 shadow-sm space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-[11px] font-black uppercase tracking-[0.1em] text-slate-400 flex items-center gap-2">
@@ -181,17 +234,16 @@ export default function NewQuestionForm() {
               </div>
             </div>
 
-            <div className="min-h-[180px]"> {/* Container ล็อกความสูง */}
+            <div className="min-h-[180px]">
               {questionType === 'text' ? (
                 <textarea
-                  key="q-text"
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-5 text-sm outline-none h-[180px] resize-none focus:ring-4 focus:ring-blue-500/5 transition-all"
                   placeholder="ระบุคำถามที่คุณต้องการทดสอบ..."
                   value={questionText || ''}
                   onChange={(e) => setQuestionText(e.target.value)}
                 />
               ) : (
-                <div key="q-image" className="group relative border-2 border-dashed border-slate-200 rounded-[24px] h-[180px] flex flex-col items-center justify-center gap-4 bg-slate-50 hover:bg-slate-100/50 transition-all cursor-pointer">
+                <div className="group relative border-2 border-dashed border-slate-200 rounded-[24px] h-[180px] flex flex-col items-center justify-center gap-4 bg-slate-50 hover:bg-slate-100/50 transition-all cursor-pointer">
                   <div className="p-4 bg-white rounded-full shadow-sm text-blue-500 group-hover:scale-110 transition-transform">
                     <ImageIcon size={32} />
                   </div>
@@ -199,7 +251,7 @@ export default function NewQuestionForm() {
                     <p className="text-sm font-bold text-slate-700">คลิกเพื่ออัปโหลดรูปโจทย์</p>
                     <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={(e) => e.target.files?.[0] && setQuestionImage(e.target.files[0])} />
                   </div>
-                  {questionImage && <div className="mt-2 px-4 py-1 bg-blue-600 text-white text-[10px] font-bold rounded-full">✅ {questionImage.name}</div>}
+                  {(questionImage || initialData?.question_image_url) && <div className="mt-2 px-4 py-1 bg-blue-600 text-white text-[10px] font-bold rounded-full">✅ มีรูปภาพแล้ว</div>}
                 </div>
               )}
             </div>
@@ -215,17 +267,12 @@ export default function NewQuestionForm() {
               {choices.map((c, i) => (
                 <div key={i} className={`relative bg-white border rounded-[24px] p-6 transition-all shadow-sm ${correctIndex === i ? 'border-green-500 ring-4 ring-green-50' : 'border-slate-200 hover:border-slate-300'}`}>
                   <div className="flex flex-col sm:flex-row gap-6">
-                    
                     <div className="flex flex-row sm:flex-col gap-3 shrink-0">
-                      <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm">
-                        {String.fromCharCode(65 + i)}
-                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm">{String.fromCharCode(65 + i)}</div>
                       <button 
                         type="button"
                         onClick={() => setCorrectIndex(i)}
-                        className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all ${
-                          correctIndex === i ? 'bg-green-500 border-green-500 text-white' : 'bg-white text-slate-400'
-                        }`}
+                        className={`px-3 py-2 rounded-xl text-[10px] font-black border transition-all ${correctIndex === i ? 'bg-green-500 border-green-500 text-white' : 'bg-white text-slate-400'}`}
                       >
                         {correctIndex === i ? 'CORRECT' : 'SET TRUE'}
                       </button>
@@ -233,27 +280,11 @@ export default function NewQuestionForm() {
 
                     <div className="flex-1 space-y-4">
                       <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant={c.type === 'text' ? 'secondary' : 'outline'}
-                          onClick={() => switchChoiceType(i, 'text')}
-                          className="text-[10px] font-black px-4 h-8"
-                        >
-                          TEXT
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={c.type === 'image' ? 'secondary' : 'outline'}
-                          onClick={() => switchChoiceType(i, 'image')}
-                          className="text-[10px] font-black px-4 h-8"
-                        >
-                          IMAGE
-                        </Button>
+                        <Button type="button" variant={c.type === 'text' ? 'secondary' : 'outline'} onClick={() => switchChoiceType(i, 'text')} className="text-[10px] font-black px-4 h-8">TEXT</Button>
+                        <Button type="button" variant={c.type === 'image' ? 'secondary' : 'outline'} onClick={() => switchChoiceType(i, 'image')} className="text-[10px] font-black px-4 h-8">IMAGE</Button>
                       </div>
-
                       {c.type === 'text' ? (
                         <input
-                          key={`choice-text-${i}`}
                           className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3 text-sm focus:ring-4 focus:ring-blue-500/5 outline-none transition-all"
                           placeholder="พิมพ์ข้อความคำตอบ..."
                           value={c.text || ''}
@@ -262,11 +293,9 @@ export default function NewQuestionForm() {
                           }}
                         />
                       ) : (
-                        <div key={`choice-file-${i}`} className="flex items-center gap-4 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3">
+                        <div className="flex items-center gap-4 bg-slate-50 border border-slate-200 rounded-xl px-5 py-3">
                           <ImageIcon size={20} className="text-slate-400" />
-                          <input 
-                            type="file" accept="image/*" 
-                            className="text-xs text-slate-500 file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:bg-white" 
+                          <input type="file" accept="image/*" className="text-xs text-slate-500" 
                             onChange={(e) => {
                               const next = [...choices]; next[i].file = e.target.files?.[0] || null; setChoices(next)
                             }}
@@ -284,9 +313,9 @@ export default function NewQuestionForm() {
           <button
             onClick={submit}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white py-5 rounded-[24px] text-sm font-black shadow-2xl transition-all active:scale-[0.98]"
+            className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white py-5 rounded-[24px] text-sm font-black shadow-2xl transition-all"
           >
-            {loading ? 'กำลังบันทึกข้อมูล...' : <><Save size={20} /> บันทึกข้อสอบลงคลัง</>}
+            {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> {isEdit ? 'บันทึกการแก้ไข' : 'บันทึกข้อสอบลงคลัง'}</>}
           </button>
         </div>
       </div>

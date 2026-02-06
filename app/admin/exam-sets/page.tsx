@@ -26,6 +26,8 @@ export default async function AdminExamSetsPage() {
       name,
       description,
       duration,
+      status,       
+        is_featured,   
       exam_set_topics (
         question_count,
         sort_order,

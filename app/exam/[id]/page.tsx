@@ -16,22 +16,19 @@ type Question = {
   choices: Choice[]
 }
 
-// 1. เปลี่ยนการรับค่า params ให้รองรับ Promise
 export default async function ExamPage({ 
   params 
 }: { 
-  params: Promise<{ id: string }> // กำหนด type เป็น Promise
+  params: Promise<{ id: string }> 
 }) {
   const supabase = await createClient()
-  
-  // 2. ต้อง await params ก่อนดึง id ออกมา
   const { id } = await params 
 
   // 1. ตรวจสอบ User Session
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // 2. ดึงข้อมูล Exam Set (คราวนี้ id จะไม่เป็น undefined แล้ว)
+  // 2. ดึงข้อมูล Exam Set (เพิ่ม sort_order ใน select)
   const { data: examSet, error: examSetError } = await supabase
     .from('exam_sets')
     .select(`
@@ -40,6 +37,7 @@ export default async function ExamPage({
       duration,
       exam_set_topics (
         question_count,
+        sort_order,
         topics (
           questions (
             id,
@@ -62,25 +60,28 @@ export default async function ExamPage({
     return notFound()
   }
 
-  // 3. จัดการสุ่มข้อสอบตามสัดส่วน (question_count) ที่แอดมินตั้งไว้
-  const allQuestions: Question[] = (examSet.exam_set_topics as any[]).flatMap((est) => {
-    const rawQuestions = est.topics?.questions || []
-    
-    // Shuffle และ Slice ตามจำนวนที่ต้องการในแต่ละหัวข้อ
-    return [...rawQuestions]
-      .sort(() => 0.5 - Math.random()) 
-      .slice(0, est.question_count)
-      .map((q: any) => ({
-        id: q.id,
-        question_text: q.question_text,
-        question_type: q.question_type,
-        image_url: q.question_image_url,
-        choices: q.choices.map((c: any) => ({
-          id: c.id,
-          choice_text: c.choice_text,
-        })),
-      }))
-  })
+  // 3. จัดการดึงข้อสอบ โดยเรียงลำดับตาม Topic ก่อน แล้วค่อยสุ่มข้อข้างใน
+  const allQuestions: Question[] = (examSet.exam_set_topics as any[])
+    // เรียงลำดับ Topic (เช่น อนุกรม ต้องมาก่อน คณิต)
+    .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    .flatMap((est) => {
+      const rawQuestions = est.topics?.questions || []
+      
+      // Shuffle เฉพาะข้อสอบ "ภายใน" Topic เดียวกัน
+      return [...rawQuestions]
+        .sort(() => 0.5 - Math.random()) 
+        .slice(0, est.question_count)
+        .map((q: any) => ({
+          id: q.id,
+          question_text: q.question_text,
+          question_type: q.question_type,
+          image_url: q.question_image_url,
+          choices: q.choices.map((c: any) => ({
+            id: c.id,
+            choice_text: c.choice_text,
+          })),
+        }))
+    })
 
   // 4. กรณีไม่มีข้อสอบในชุดนี้
   if (allQuestions.length === 0) {
@@ -99,7 +100,7 @@ export default async function ExamPage({
     <ExamClient 
       questions={allQuestions} 
       title={examSet.name} 
-      duration={examSet.duration || 60} // ส่งเวลาจริง (นาที) ไปให้หน้าสอบ
+      duration={examSet.duration || 60} 
     />
   )
 }
