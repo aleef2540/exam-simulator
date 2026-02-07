@@ -29,6 +29,8 @@ export default async function AdminQuestionsPage() {
     question_text,
     question_image_url,
     created_at,
+    group_id,    
+    group_order,
     subjects!questions_subject_id_fkey (
       name
     ),
@@ -39,7 +41,8 @@ export default async function AdminQuestionsPage() {
       id,
       choice_text,
       choice_image_url,
-      is_correct
+      is_correct,
+      sort_order
     )
   `).order('created_at', { ascending: false })
     
@@ -58,6 +61,8 @@ interface FormattedQuestion {
   subject_name: string;
   topic_name: string;
   created_at: string;
+  group_id: string | null;   
+  group_order: number | null;
   choices: any[];
 }
 
@@ -74,6 +79,8 @@ const formattedQuestions: FormattedQuestion[] = (data || []).map((q: any) => {
     subject_name: subjectData?.name || 'ไม่ระบุวิชา',
     topic_name: topicData?.name || 'ไม่ระบุหัวข้อ',
     created_at: q.created_at,
+    group_id: q.group_id,       // 🟢 ส่งข้อมูล group_id ไปยัง Client
+    group_order: q.group_order,
     choices: q.choices || [],
   };
 });

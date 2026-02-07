@@ -17,10 +17,27 @@ export default function QuestionNavigator({
 
   const getStatus = (index: number): QuestionStatus => {
     const questionNumber = index+1
+    const statusFromProps = answers[questionNumber]
 
-    if (questionNumber === current) return 'current'
-    if (answers[questionNumber] !== undefined) return 'done'
-    return 'empty'
+    
+    
+    // ถ้าเป็นข้อที่กำลังเปิดดูอยู่ ให้เป็น 'current' (สีเหลือง)
+  if (questionNumber === current) {
+    if(statusFromProps === 'correct' || statusFromProps === 'wrong' || statusFromProps === 'empty'){return 'on'}
+    return 'current'
+  }
+  if (statusFromProps === 'empty') return 'empty'
+  
+  // ถ้าใน answers ส่ง 'correct' หรือ 'wrong' มา ให้ใช้ค่านั้นเลย
+  if (statusFromProps === 'correct' || statusFromProps === 'wrong') {
+    return statusFromProps as QuestionStatus
+  }
+
+  // ถ้ามีการตอบแล้วแต่ไม่ใช่การเฉลย ให้เป็น 'done' (สีดำ)
+  if (statusFromProps !== undefined) return 'done'
+
+// ถ้ายังไม่ได้ทำ
+  return 'empty'
   }
 
   return (

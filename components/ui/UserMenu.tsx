@@ -83,6 +83,13 @@ export default function UserMenu({ email }: Props) {
 
             <div className="border-t" />
 
+            <Link
+              href="/exam/result"
+              onClick={closeMenu}
+              className="block px-4 py-2 text-sm hover:bg-slate-50"
+            >
+              ดูสถิติ
+            </Link>
             {/* 🟢 ใส่ onClick={closeMenu} ให้ทุกลิงก์เพื่อให้เมนูปิดเมื่อเปลี่ยนหน้า */}
             {/*
             <Link
@@ -93,13 +100,7 @@ export default function UserMenu({ email }: Props) {
               แดชบอร์ด
             </Link>
 
-            <Link
-              href="/stats"
-              onClick={closeMenu}
-              className="block px-4 py-2 text-sm hover:bg-slate-50"
-            >
-              ดูสถิติ
-            </Link>
+            
 */}
             
             {role === 'admin' && (

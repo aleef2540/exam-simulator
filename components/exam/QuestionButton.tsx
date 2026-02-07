@@ -22,7 +22,13 @@ export default function QuestionButton({
         status === 'done' &&
           'bg-gray-700 text-white border-gray-700',
         status === 'empty' &&
-          'bg-white text-gray-700 hover:bg-gray-100'
+          'bg-white text-gray-700 hover:bg-gray-100',
+        status === 'wrong' &&
+          'bg-red-400 text-gray-700 hover:bg-red-500',
+        status === 'correct' &&
+          'bg-green-400 text-gray-700 hover:bg-green-500',
+        status === 'on' &&
+          'bg-blue-400 text-gray-700 hover:bg-blue-500'
       )}
     >
       {number}
